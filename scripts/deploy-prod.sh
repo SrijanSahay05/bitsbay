@@ -39,6 +39,8 @@ show_usage() {
     echo "  backup         - Backup database"
     echo "  restore        - Restore database from backup"
     echo "  shell          - Open Django shell in production"
+    echo "  createsuperuser - Create Django superuser"
+    echo "  makemigrations - Create Django migrations"
     echo "  migrate        - Run Django migrations"
     echo "  collectstatic  - Collect static files"
     echo "  help           - Show this help message"
@@ -456,6 +458,24 @@ collect_static() {
     run_docker_compose "exec web python manage.py collectstatic --noinput"
 }
 
+# Function to create superuser
+create_superuser() {
+    print_status "Creating Django superuser..."
+    run_docker_compose "exec web python manage.py createsuperuser"
+}
+
+# Function to create migrations
+create_migrations() {
+    print_status "Creating Django migrations..."
+    if [ -n "$2" ]; then
+        # If app name is provided
+        run_docker_compose "exec web python manage.py makemigrations $2"
+    else
+        # Create migrations for all apps
+        run_docker_compose "exec web python manage.py makemigrations"
+    fi
+}
+
 # Main execution logic
 case $COMMAND in
     "start"|"up")
@@ -502,6 +522,14 @@ case $COMMAND in
     "shell")
         check_prerequisites
         run_django_shell
+        ;;
+    "createsuperuser")
+        check_prerequisites
+        create_superuser
+        ;;
+    "makemigrations")
+        check_prerequisites
+        create_migrations "$@"
         ;;
     "migrate")
         check_prerequisites

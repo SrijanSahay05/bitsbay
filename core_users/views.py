@@ -6,6 +6,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework_simplejwt.exceptions import TokenError
 
 from google.oauth2 import id_token
 from google.auth.transport import requests
@@ -138,4 +139,61 @@ class UserProfileView(APIView):
                     status=status.HTTP_400_BAD_REQUEST
                 )
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class LogoutView(APIView):
+    """
+    Handles user logout by blacklisting the refresh token.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        """
+        Logs out the user by blacklisting their refresh token.
+
+        Expects:
+            {
+                "refresh": "your_refresh_token_here"
+            }
+
+        Returns on Success:
+            {
+                "message": "Successfully logged out"
+            }
+
+        Returns on Failure:
+            {
+                "error": "A descriptive error message"
+            }
+        """
+        try:
+            # Get the refresh token from the request data
+            refresh_token = request.data.get('refresh')
+            if not refresh_token:
+                return Response(
+                    {"error": "Refresh token is required"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            # Blacklist the refresh token
+            try:
+                token = RefreshToken(refresh_token)
+                token.blacklist()
+            except TokenError as e:
+                return Response(
+                    {"error": f"Invalid refresh token: {str(e)}"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            return Response(
+                {"message": "Successfully logged out"},
+                status=status.HTTP_200_OK
+            )
+
+        except Exception as e:
+            return Response(
+                {"error": f"An unexpected error occurred: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
