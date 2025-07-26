@@ -86,16 +86,21 @@ echo
 get_domain() {
     if [ -z "$DOMAIN" ]; then
         echo
-        read -p "Enter your domain name (e.g., example.com): " DOMAIN
+        read -p "Enter your domain name (e.g., example.com or sub.example.com): " DOMAIN
         if [ -z "$DOMAIN" ]; then
             print_error "Domain name is required"
             exit 1
         fi
     fi
     
-    # Validate domain format
-    if [[ ! "$DOMAIN" =~ ^[a-zA-Z0-9][a-zA-Z0-9-]{1,61}[a-zA-Z0-9]\.[a-zA-Z]{2,}$ ]]; then
+    # Validate domain format (supports subdomains)
+    if [[ ! "$DOMAIN" =~ ^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*\.[a-zA-Z]{2,}$ ]]; then
         print_error "Invalid domain format: $DOMAIN"
+        print_error "Domain should be in format: example.com or sub.example.com"
+        print_error "Examples of valid domains:"
+        print_error "  - example.com"
+        print_error "  - sub.example.com"
+        print_error "  - books.srijansahay05.in"
         exit 1
     fi
     
