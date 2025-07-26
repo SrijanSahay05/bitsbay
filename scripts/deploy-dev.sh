@@ -26,7 +26,7 @@ print_error() {
 
 # Function to show usage
 show_usage() {
-    echo "Usage: $0 [COMMAND]"
+    echo "Usage: $0 [COMMAND] [ARGUMENTS...]"
     echo ""
     echo "Commands:"
     echo "  start, up      - Start all containers (default)"
@@ -39,6 +39,8 @@ show_usage() {
     echo "  migrate        - Run Django migrations"
     echo "  collectstatic  - Collect static files"
     echo "  status         - Show container status"
+    echo "  resetdb        - Reset database (remove migrations and start fresh)"
+    echo "  app <name>     - Create a new Django app"
     echo "  help           - Show this help message"
     echo ""
     echo "Examples:"
@@ -46,6 +48,8 @@ show_usage() {
     echo "  $0 restart      # Restart containers"
     echo "  $0 shell        # Open Django shell"
     echo "  $0 logs         # Show logs"
+    echo "  $0 resetdb      # Reset database completely"
+    echo "  $0 app marketplace # Create marketplace app"
 }
 
 # Get the directory where the script is located
@@ -54,6 +58,7 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
 # Parse command line arguments
 COMMAND=${1:-start}
+APP_NAME=${2:-""}
 
 # Change to project root directory
 cd "$PROJECT_ROOT" || {
@@ -249,6 +254,81 @@ collect_static() {
     run_docker_compose "exec web python manage.py collectstatic --noinput"
 }
 
+# Function to create new Django app
+create_django_app() {
+    if [ -z "$APP_NAME" ]; then
+        print_error "App name is required. Usage: $0 app <app_name>"
+        exit 1
+    fi
+    
+    print_status "Creating Django app: $APP_NAME"
+    
+    # Check if app already exists
+    if [ -d "$APP_NAME" ]; then
+        print_warning "App directory '$APP_NAME' already exists"
+        read -p "Do you want to continue? (y/n): " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            print_status "App creation cancelled"
+            exit 0
+        fi
+    fi
+    
+    # Create the app using Django management command
+    print_status "Running Django startapp command..."
+    run_docker_compose "exec web python manage.py startapp $APP_NAME"
+    
+    if [ $? -eq 0 ]; then
+        print_success "Django app '$APP_NAME' created successfully!"
+        print_status "App directory: $APP_NAME/"
+        print_status "Don't forget to add '$APP_NAME' to INSTALLED_APPS in settings.py"
+        print_status "You can now start adding models, views, and URLs to your app"
+    else
+        print_error "Failed to create Django app '$APP_NAME'"
+        exit 1
+    fi
+}
+
+# Function to reset database
+reset_database() {
+    print_warning "This will completely reset the database and remove all migrations!"
+    print_warning "All data will be lost!"
+    echo
+    read -p "Are you sure you want to continue? (yes/no): " -r
+    if [[ ! $REPLY =~ ^[Yy][Ee][Ss]$ ]]; then
+        print_status "Database reset cancelled"
+        exit 0
+    fi
+    
+    print_status "Stopping containers..."
+    run_docker_compose "down"
+    
+    print_status "Removing database volume..."
+    run_docker_compose "down -v"
+    
+    print_status "Removing all migration files..."
+    find . -path "*/migrations/*.py" -not -name "__init__.py" -delete
+    find . -path "*/migrations/*.pyc" -delete
+    
+    print_status "Starting containers..."
+    run_docker_compose "up -d"
+    
+    print_status "Waiting for database to be ready..."
+    sleep 10
+    
+    print_status "Creating fresh migrations..."
+    run_docker_compose "exec web python manage.py makemigrations"
+    
+    print_status "Applying migrations..."
+    run_docker_compose "exec web python manage.py migrate"
+    
+    print_status "Collecting static files..."
+    run_docker_compose "exec web python manage.py collectstatic --noinput"
+    
+    print_success "Database reset completed successfully!"
+    print_status "You can now create a superuser with: $0 createsuperuser"
+}
+
 # Main execution logic
 case $COMMAND in
     "start"|"up")
@@ -292,6 +372,15 @@ case $COMMAND in
     "collectstatic")
         check_prerequisites
         collect_static
+        ;;
+    "resetdb")
+        setup_env_file
+        check_prerequisites
+        reset_database
+        ;;
+    "app")
+        check_prerequisites
+        create_django_app
         ;;
     "help"|"-h"|"--help")
         show_usage

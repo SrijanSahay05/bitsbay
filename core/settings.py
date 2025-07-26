@@ -87,6 +87,7 @@ REST_FRAMEWORK_APPS = [
 
 CORE_APPS = [
     "core_users",
+    "marketplace",
 ]
 
 INSTALLED_APPS = DJANGO_APPS + REST_FRAMEWORK_APPS + CORE_APPS
@@ -102,6 +103,7 @@ MIDDLEWARE = [
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
 
+AUTH_USER_MODEL="core_users.CustomUser"
 ROOT_URLCONF = "core.urls"
 
 TEMPLATES = [
@@ -189,6 +191,8 @@ MEDIA_ROOT = BASE_DIR / "media"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
+# Custom User Model
+AUTH_USER_MODEL = "core_users.CustomUser"
 
 # Google OAuth2 credentials
 GOOGLE_OAUTH2_CLIENT_ID = os.environ.get("GOOGLE_OAUTH2_CLIENT_ID")
