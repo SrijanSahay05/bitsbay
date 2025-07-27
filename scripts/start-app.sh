@@ -25,7 +25,7 @@ print_error() {
 }
 
 # Configuration
-DOMAIN="books.shreyas.srijansahay05.in"
+DOMAIN="shreyas.srijansahay05.in"
 EMAIL="srijan05sahay@gmail.com"
 
 # Function to check if SSL certificates exist
@@ -60,7 +60,7 @@ http {
 
     server {
         listen 80;
-        server_name books.shreyas.srijansahay05.in;
+        server_name shreyas.srijansahay05.in;
 
         # Certbot challenge
         location /.well-known/acme-challenge/ {

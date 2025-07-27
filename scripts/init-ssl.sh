@@ -25,7 +25,7 @@ print_error() {
 }
 
 # Configuration
-DOMAIN="books.shreyas.srijansahay05.in"
+DOMAIN="shreyas.srijansahay05.in"
 EMAIL="srijan05sahay@gmail.com"
 COMPOSE_FILE="docker-compose.prod.yml"
 

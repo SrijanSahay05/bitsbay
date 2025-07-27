@@ -29,7 +29,7 @@ show_usage() {
     echo "Usage: $0 [OPTIONS]"
     echo ""
     echo "Options:"
-    echo "  --domain DOMAIN     - Set the domain name (default: books.shreyas.srijansahay05.in)"
+    echo "  --domain DOMAIN     - Set the domain name (default: shreyas.srijansahay05.in)"
     echo "  --email EMAIL       - Set the email for SSL certificates (default: srijan05sahay@gmail.com)"
     echo "  --skip-ssl          - Skip SSL certificate setup"
     echo "  --help              - Show this help message"
@@ -42,7 +42,7 @@ show_usage() {
 }
 
 # Default values
-DOMAIN="books.shreyas.srijansahay05.in"
+DOMAIN="shreyas.srijansahay05.in"
 EMAIL="srijan05sahay@gmail.com"
 SKIP_SSL=false
 

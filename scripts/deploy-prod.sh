@@ -291,8 +291,8 @@ start_production() {
     if [ $? -eq 0 ]; then
         print_success "Production environment started successfully!"
         print_status "Services are starting up..."
-        print_status "Web application will be available at: https://books.shreyas.srijansahay05.in"
-        print_status "Admin panel will be available at: https://books.shreyas.srijansahay05.in/admin"
+        print_status "Web application will be available at: https://shreyas.srijansahay05.in"
+        print_status "Admin panel will be available at: https://shreyas.srijansahay05.in/admin"
         
         echo
         print_status "Container status:"
@@ -352,7 +352,7 @@ setup_ssl() {
     print_status "Setting up SSL certificates..."
     
     # Check if domain is configured
-    if ! grep -q "books.shreyas.srijansahay05.in" .env.prod; then
+    if ! grep -q "shreyas.srijansahay05.in" .env.prod; then
         print_error "Domain not configured in .env.prod. Please update ALLOWED_HOSTS and CSRF_TRUSTED_ORIGINS"
         exit 1
     fi
