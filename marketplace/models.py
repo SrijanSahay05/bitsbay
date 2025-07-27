@@ -13,7 +13,6 @@ class Listing(models.Model):
     title = models.CharField(max_length=200)
     description = models.TextField()
 
-    price = models.IntegerField(null=True, blank=True)
 
     #sorting tags
     tags = models.CharField(max_length=255, blank=True, help_text="Comma-seperated tags")
