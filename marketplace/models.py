@@ -22,11 +22,11 @@ class Listing(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now = True)
 
-    # STATUS_CHOICES = [
-    #     ("available", "Available"),
-    #     ("sold", "Sold"),
-    # ]
-    # status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="available")
+    STATUS_CHOICES = [
+        ("available", "Available"),
+        ("sold", "Sold"),
+    ]
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="available")
 
     def __str__(self):
         return f"{self.title} by {self.seller.phone_number}"
