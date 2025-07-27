@@ -33,6 +33,7 @@ show_usage() {
     echo "  stop, down     - Stop all containers"
     echo "  restart        - Restart all containers"
     echo "  rebuild        - Rebuild and start containers"
+    echo "  fresh-start    - Complete fresh start (reset migrations, database, and restart)"
     echo "  logs           - Show container logs"
     echo "  shell          - Open Django shell"
     echo "  createsuperuser - Create Django superuser"
@@ -46,6 +47,7 @@ show_usage() {
     echo "Examples:"
     echo "  $0              # Start containers (default)"
     echo "  $0 restart      # Restart containers"
+    echo "  $0 fresh-start  # Complete fresh start with clean database"
     echo "  $0 shell        # Open Django shell"
     echo "  $0 logs         # Show logs"
     echo "  $0 resetdb      # Reset database completely"
@@ -329,6 +331,90 @@ reset_database() {
     print_status "You can now create a superuser with: $0 createsuperuser"
 }
 
+# Function to do a complete fresh start
+fresh_start() {
+    print_warning "🚨 DESTRUCTIVE OPERATION: Complete Fresh Start"
+    print_warning "This will:"
+    print_warning "  - Stop all containers"
+    print_warning "  - Remove all volumes (database data will be lost)"
+    print_warning "  - Delete all migration files"
+    print_warning "  - Rebuild containers from scratch"
+    print_warning "  - Create fresh migrations"
+    print_warning "  - Apply migrations"
+    print_warning "  - Collect static files"
+    echo
+    print_warning "ALL DATA WILL BE PERMANENTLY LOST!"
+    echo
+    
+    read -p "Are you absolutely sure you want to continue? Type 'YES' to confirm: " -r
+    if [[ ! $REPLY = "YES" ]]; then
+        print_status "Fresh start cancelled"
+        exit 0
+    fi
+    
+    print_status "🧹 Starting complete fresh start..."
+    
+    # Stop and remove everything
+    print_status "Stopping and removing containers and volumes..."
+    run_docker_compose "down -v --remove-orphans"
+    
+    # Remove all migration files except __init__.py
+    print_status "Removing all migration files..."
+    find . -path "*/migrations/*.py" -not -name "__init__.py" -delete
+    find . -path "*/migrations/*.pyc" -delete
+    find . -path "*/migrations/__pycache__" -exec rm -rf {} + 2>/dev/null || true
+    
+    # Remove any cached Python files
+    print_status "Cleaning Python cache files..."
+    find . -name "*.pyc" -delete
+    find . -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
+    
+    # Build and start containers fresh
+    print_status "Building containers from scratch..."
+    run_docker_compose "build --no-cache"
+    
+    print_status "Starting fresh containers..."
+    run_docker_compose "up -d"
+    
+    # Wait for database to be ready
+    print_status "Waiting for database to be ready..."
+    sleep 15
+    
+    # Create fresh migrations for each app
+    print_status "Creating fresh migrations..."
+    
+    # Check which apps exist and create migrations for them
+    if [ -d "core_users" ]; then
+        print_status "Creating migrations for core_users..."
+        run_docker_compose "exec web python manage.py makemigrations core_users"
+    fi
+    
+    if [ -d "marketplace" ]; then
+        print_status "Creating migrations for marketplace..."
+        run_docker_compose "exec web python manage.py makemigrations marketplace"
+    fi
+    
+    # Create migrations for any other apps
+    print_status "Creating migrations for all apps..."
+    run_docker_compose "exec web python manage.py makemigrations"
+    
+    # Apply migrations
+    print_status "Applying fresh migrations..."
+    run_docker_compose "exec web python manage.py migrate"
+    
+    # Collect static files
+    print_status "Collecting static files..."
+    run_docker_compose "exec web python manage.py collectstatic --noinput"
+    
+    print_success "🎉 Fresh start completed successfully!"
+    print_status "Your development environment is now completely fresh"
+    print_status "Next steps:"
+    print_status "  1. Create a superuser: $0 createsuperuser"
+    print_status "  2. Check status: $0 status"
+    print_status "  3. View logs: $0 logs"
+    print_status "  4. Access admin: http://localhost:8000/admin"
+}
+
 # Main execution logic
 case $COMMAND in
     "start"|"up")
@@ -348,6 +434,11 @@ case $COMMAND in
         setup_env_file
         check_prerequisites
         rebuild_containers
+        ;;
+    "fresh-start")
+        setup_env_file
+        check_prerequisites
+        fresh_start
         ;;
     "logs")
         check_prerequisites
