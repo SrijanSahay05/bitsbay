@@ -20,13 +20,14 @@ class ListingReadSerializer(serializers.ModelSerializer):
     id = serializers.CharField(source='pk', read_only=True)
     name = serializers.CharField(source='seller.get_full_name', read_only=True)
     phone = serializers.CharField(source='seller.phone_number', read_only=True)
+    email = serializers.EmailField(source='seller.email', read_only=True)
     tags = serializers.SerializerMethodField()
 
     class Meta:
         model = Listing
         fields = [
             'id', 'name', 'title', 'description',
-            'tags', 'negotiable', 'phone', 'year'
+            'tags', 'negotiable', 'phone', 'email', 'year'
         ]
 
     def get_tags(self, obj):
