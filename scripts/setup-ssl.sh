@@ -100,7 +100,7 @@ get_domain() {
         print_error "Examples of valid domains:"
         print_error "  - example.com"
         print_error "  - sub.example.com"
-        print_error "  - books.srijansahay05.in"
+        print_error "  - books.shreyas.srijansahay05.in"
         exit 1
     fi
     

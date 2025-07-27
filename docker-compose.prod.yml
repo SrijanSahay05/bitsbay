@@ -53,7 +53,7 @@ services:
     volumes:
       - /etc/letsencrypt:/etc/letsencrypt
       - ./certbot-www:/var/www/certbot
-    command: certonly --webroot --webroot-path=/var/www/certbot --email srijan05sahay@gmail.com --agree-tos --no-eff-email --force-renewal -d books.srijansahay05.in
+    command: certonly --webroot --webroot-path=/var/www/certbot --email srijan05sahay@gmail.com --agree-tos --no-eff-email --force-renewal -d books.shreyas.srijansahay05.in
 
 volumes:
   postgres_data:
