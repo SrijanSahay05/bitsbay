@@ -33,6 +33,7 @@ show_usage() {
     echo "  stop, down     - Stop production environment"
     echo "  restart        - Restart production environment"
     echo "  rebuild        - Rebuild and start production containers"
+    echo "  fresh-start    - Reset all migrations, start with fresh database (DESTRUCTIVE!)"
     echo "  logs           - Show production logs"
     echo "  status         - Show production container status"
     echo "  ssl            - Setup/renew SSL certificates"
@@ -48,6 +49,7 @@ show_usage() {
     echo "Examples:"
     echo "  $0              # Start production (default)"
     echo "  $0 restart      # Restart production"
+    echo "  $0 fresh-start  # Reset database and start fresh"
     echo "  $0 ssl          # Setup SSL certificates"
     echo "  $0 backup       # Backup database"
     echo "  $0 logs         # Show logs"
@@ -335,6 +337,97 @@ rebuild_production() {
     print_success "Production containers rebuilt and started"
 }
 
+# Function to fresh start with clean database and migrations
+fresh_start_production() {
+    print_warning "🚨 DESTRUCTIVE OPERATION: This will completely reset your database and migrations!"
+    print_warning "All existing data will be permanently lost!"
+    echo
+    print_status "This operation will:"
+    echo "  1. Stop all containers"
+    echo "  2. Remove all migration files"
+    echo "  3. Delete the database volume"
+    echo "  4. Create fresh migrations"
+    echo "  5. Start with a clean database"
+    echo
+    
+    # Double confirmation for destructive operation
+    read -p "Are you absolutely sure you want to continue? Type 'YES' to confirm: " -r
+    if [[ ! $REPLY = "YES" ]]; then
+        print_status "Fresh start cancelled"
+        exit 0
+    fi
+    
+    read -p "Last chance! This will destroy all data. Type 'DESTROY' to proceed: " -r
+    if [[ ! $REPLY = "DESTROY" ]]; then
+        print_status "Fresh start cancelled"
+        exit 0
+    fi
+    
+    # Create automatic backup before destroying data
+    print_status "Creating automatic backup before fresh start..."
+    mkdir -p backups
+    BACKUP_FILE="backups/pre_fresh_start_backup_$(date +%Y%m%d_%H%M%S).sql"
+    
+    # Try to create backup if database is running
+    if run_docker_compose "exec -T db pg_dump -U $POSTGRES_USER $POSTGRES_DB" > "$BACKUP_FILE" 2>/dev/null; then
+        print_success "Backup created: $BACKUP_FILE"
+    else
+        print_warning "Could not create backup (database may not be running)"
+        rm -f "$BACKUP_FILE" 2>/dev/null || true
+    fi
+    
+    print_status "Starting fresh database setup..."
+    
+    # Check and disable conflicting services
+    check_and_disable_conflicting_services
+    
+    # Stop and remove all containers and volumes
+    print_status "Stopping containers and removing volumes..."
+    run_docker_compose "down -v"
+    
+    # Remove migration files (keep __init__.py)
+    print_status "Removing existing migration files..."
+    find . -path "*/migrations/*.py" -not -name "__init__.py" -delete
+    find . -path "*/migrations/*.pyc" -delete
+    
+    # Remove __pycache__ directories in migrations
+    find . -path "*/migrations/__pycache__" -exec rm -rf {} + 2>/dev/null || true
+    
+    print_success "Migration files removed"
+    
+    # Build and start containers
+    print_status "Building and starting fresh containers..."
+    run_docker_compose "up --build -d db"
+    
+    # Wait for database to be ready
+    print_status "Waiting for database to be ready..."
+    sleep 10
+    
+    # Create fresh migrations
+    print_status "Creating fresh migrations..."
+    run_docker_compose "exec web python manage.py makemigrations core_users"
+    run_docker_compose "exec web python manage.py makemigrations marketplace"
+    run_docker_compose "exec web python manage.py makemigrations"
+    
+    # Apply migrations
+    print_status "Applying fresh migrations..."
+    run_docker_compose "exec web python manage.py migrate"
+    
+    # Collect static files
+    print_status "Collecting static files..."
+    run_docker_compose "exec web python manage.py collectstatic --noinput"
+    
+    # Start all services
+    print_status "Starting all services..."
+    run_docker_compose "up -d"
+    
+    print_success "🎉 Fresh start completed successfully!"
+    print_status "Your application is now running with a clean database"
+    print_warning "Don't forget to create a superuser: $0 createsuperuser"
+    print_status "Web application: https://shreyas.srijansahay05.in"
+    print_status "Admin panel: https://shreyas.srijansahay05.in/admin"
+}
+
 # Function to show logs
 show_logs() {
     print_status "Showing production logs..."
@@ -495,6 +588,11 @@ case $COMMAND in
         setup_env_file
         check_prerequisites
         rebuild_production
+        ;;
+    "fresh-start")
+        setup_env_file
+        check_prerequisites
+        fresh_start_production
         ;;
     "logs")
         check_prerequisites
