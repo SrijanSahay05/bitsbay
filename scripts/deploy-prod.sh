@@ -36,8 +36,9 @@ show_usage() {
     echo "  fresh-start    - Reset all migrations, start with fresh database (DESTRUCTIVE!)"
     echo "  logs           - Show production logs"
     echo "  status         - Show production container status"
-    echo "  ssl            - Setup/renew SSL certificates"
+    echo "  ssl            - Setup/renew SSL certificates (container-based)"
     echo "  ssl-status     - Check SSL certificate status and expiry"
+    echo "  ssl-host       - Setup SSL using host machine certbot"
     echo "  http-only      - Setup HTTP-only mode (no SSL)"
     echo "  backup         - Backup database"
     echo "  restore        - Restore database from backup"
@@ -53,7 +54,8 @@ show_usage() {
     echo "  $0              # Start production (default)"
     echo "  $0 restart      # Restart production"
     echo "  $0 fresh-start  # Reset database and start fresh"
-    echo "  $0 ssl          # Setup SSL certificates"
+    echo "  $0 ssl          # Setup SSL certificates (container)"
+    echo "  $0 ssl-host     # Setup SSL using host certbot (recommended)"
     echo "  $0 ssl-status   # Check SSL certificate expiry"
     echo "  $0 http-only    # Setup without SSL (fallback)"
     echo "  $0 domain-check # Check domain configuration"
@@ -930,6 +932,88 @@ check_domain_config() {
     fi
 }
 
+# Function to setup SSL using host machine certbot
+setup_host_ssl() {
+    print_status "Setting up SSL using host machine certbot..."
+    
+    # Check if host SSL script exists
+    if [ ! -f "$SCRIPT_DIR/setup-host-ssl.sh" ]; then
+        print_error "Host SSL script not found: $SCRIPT_DIR/setup-host-ssl.sh"
+        exit 1
+    fi
+    
+    # Make the script executable
+    chmod +x "$SCRIPT_DIR/setup-host-ssl.sh"
+    
+    print_status "This will use host-based SSL with the following benefits:"
+    print_status "  ✅ No rate limiting issues"
+    print_status "  ✅ Better certificate management"
+    print_status "  ✅ Automatic renewal via cron"
+    print_status "  ✅ No container restarts needed"
+    echo
+    
+    read -p "Continue with host-based SSL setup? (y/n): " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        print_status "Host SSL setup cancelled"
+        exit 0
+    fi
+    
+    # Check if certbot is installed
+    if ! command -v certbot &> /dev/null; then
+        print_warning "Certbot not found on host machine"
+        read -p "Install certbot now? (y/n): " -n 1 -r
+        echo
+        if [[ $REPLY =~ ^[Yy]$ ]]; then
+            print_status "Installing certbot..."
+            sudo "$SCRIPT_DIR/setup-host-ssl.sh" install
+        else
+            print_status "Please install certbot manually and run this command again"
+            exit 1
+        fi
+    fi
+    
+    # Obtain certificates
+    print_status "Obtaining SSL certificates..."
+    sudo "$SCRIPT_DIR/setup-host-ssl.sh" obtain
+    
+    if [ $? -eq 0 ]; then
+        print_success "SSL certificates obtained successfully!"
+        
+        # Switch to host SSL docker-compose
+        print_status "Switching to host-based SSL configuration..."
+        
+        # Stop current containers
+        if [ -f "docker-compose.prod.yml" ]; then
+            docker-compose -f docker-compose.prod.yml down 2>/dev/null || true
+        fi
+        
+        # Start with host SSL configuration
+        docker-compose -f docker-compose.prod.hostssl.yml up --build -d
+        
+        if [ $? -eq 0 ]; then
+            print_success "Production environment started with host-based SSL!"
+            print_status "Your site is now available at: https://books.enspire2025.in"
+            
+            # Setup automatic renewal
+            read -p "Setup automatic certificate renewal? (y/n): " -n 1 -r
+            echo
+            if [[ $REPLY =~ ^[Yy]$ ]]; then
+                sudo "$SCRIPT_DIR/setup-host-ssl.sh" setup-cron
+                print_success "Automatic renewal configured!"
+            fi
+            
+        else
+            print_error "Failed to start production environment with SSL"
+            exit 1
+        fi
+        
+    else
+        print_error "Failed to obtain SSL certificates"
+        exit 1
+    fi
+}
+
 # Main execution logic
 case $COMMAND in
     "start"|"up")
@@ -967,6 +1051,11 @@ case $COMMAND in
         setup_env_file
         check_prerequisites
         setup_ssl
+        ;;
+    "ssl-host")
+        setup_env_file
+        check_prerequisites
+        setup_host_ssl
         ;;
     "ssl-status")
         check_ssl_status
