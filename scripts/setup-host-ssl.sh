@@ -52,12 +52,16 @@ show_usage() {
     echo ""
     echo "Commands:"
     echo "  install        - Install certbot on host machine"
-    echo "  obtain         - Obtain SSL certificates using host certbot"
-    echo "  renew          - Renew existing SSL certificates"
+    echo "  obtain         - Obtain SSL certificates (automatically frees ports 80/443)"
+    echo "  renew          - Renew existing SSL certificates (automatically frees ports 80/443)"
     echo "  check          - Check certificate status"
     echo "  setup-cron     - Setup automatic renewal cron job"
     echo "  test-renewal   - Test certificate renewal (dry-run)"
     echo "  help           - Show this help message"
+    echo ""
+    echo "Note: The 'obtain' and 'renew' commands automatically stop web servers"
+    echo "      and Docker containers using ports 80/443 before certificate validation."
+    echo "      A temporary Python HTTP server is used for ACME challenge validation."
     echo ""
     echo "Examples:"
     echo "  $0 install     # Install certbot on host"
@@ -133,6 +137,20 @@ check_prerequisites() {
         exit 1
     fi
     
+    # Check if Python is available (needed for temporary web server)
+    if ! command -v python3 &> /dev/null && ! command -v python &> /dev/null; then
+        print_status "Python not found. Installing Python3..."
+        if command -v apt-get &> /dev/null; then
+            apt-get update && apt-get install -y python3
+        elif command -v yum &> /dev/null; then
+            yum install -y python3
+        elif command -v dnf &> /dev/null; then
+            dnf install -y python3
+        else
+            print_warning "Could not install Python. Will try to install nginx instead."
+        fi
+    fi
+    
     # Check if domain resolves to this server
     print_status "Checking domain configuration..."
     DOMAIN_IP=$(dig +short $DOMAIN 2>/dev/null || nslookup $DOMAIN 2>/dev/null | grep -A1 "Name:" | tail -1 | awk '{print $2}')
@@ -151,16 +169,136 @@ check_prerequisites() {
     fi
 }
 
-# Function to setup temporary nginx for certificate validation
-setup_temp_nginx() {
-    print_status "Setting up temporary nginx for certificate validation..."
+# Function to free up ports 80 and 443
+free_ports() {
+    print_status "Freeing up ports 80 and 443 for SSL certificate validation..."
+    
+    # Function to kill processes on specific port
+    kill_port_processes() {
+        local port=$1
+        local pids=$(lsof -ti:$port 2>/dev/null || true)
+        
+        if [ -n "$pids" ]; then
+            print_status "Found processes using port $port: $pids"
+            echo "$pids" | while read -r pid; do
+                if [ -n "$pid" ]; then
+                    local process_name=$(ps -p $pid -o comm= 2>/dev/null || echo "unknown")
+                    print_status "Killing process $pid ($process_name) on port $port"
+                    kill -TERM $pid 2>/dev/null || true
+                    sleep 2
+                    # Force kill if still running
+                    if kill -0 $pid 2>/dev/null; then
+                        print_status "Force killing process $pid"
+                        kill -KILL $pid 2>/dev/null || true
+                    fi
+                fi
+            done
+        fi
+    }
+    
+    # Stop common web servers
+    print_status "Stopping common web servers..."
+    systemctl stop nginx 2>/dev/null || true
+    systemctl stop apache2 2>/dev/null || true
+    systemctl stop httpd 2>/dev/null || true
+    systemctl stop lighttpd 2>/dev/null || true
+    
+    # Stop Docker containers that might be using these ports
+    if command -v docker &> /dev/null; then
+        print_status "Stopping Docker containers using ports 80/443..."
+        docker ps --format "table {{.Names}}\t{{.Ports}}" | grep -E ":80->|:443->" | awk '{print $1}' | while read -r container; do
+            if [ -n "$container" ] && [ "$container" != "NAMES" ]; then
+                print_status "Stopping Docker container: $container"
+                docker stop "$container" 2>/dev/null || true
+            fi
+        done
+    fi
+    
+    # Kill any remaining processes on ports 80 and 443
+    kill_port_processes 80
+    kill_port_processes 443
+    
+    # Wait a moment for ports to be freed
+    sleep 3
+    
+    # Verify ports are free
+    if lsof -ti:80 >/dev/null 2>&1; then
+        print_warning "Port 80 still in use after cleanup attempt"
+        lsof -i:80 || true
+    else
+        print_success "Port 80 is now free"
+    fi
+    
+    if lsof -ti:443 >/dev/null 2>&1; then
+        print_warning "Port 443 still in use after cleanup attempt"
+        lsof -i:443 || true
+    else
+        print_success "Port 443 is now free"  
+    fi
+}
+
+# Function to setup temporary web server for certificate validation
+setup_temp_server() {
+    print_status "Setting up temporary web server for certificate validation..."
     
     # Create webroot directory
-    sudo mkdir -p $WEBROOT_PATH
-    sudo chmod 755 $WEBROOT_PATH
+    mkdir -p $WEBROOT_PATH
+    chmod 755 $WEBROOT_PATH
+    
+    # Start a simple Python HTTP server in the background
+    print_status "Starting Python HTTP server on port 80..."
+    cd $WEBROOT_PATH
+    
+    # Use Python3 if available, otherwise Python2
+    if command -v python3 &> /dev/null; then
+        python3 -m http.server 80 > /tmp/certbot-server.log 2>&1 &
+        SERVER_PID=$!
+    elif command -v python &> /dev/null; then
+        python -m SimpleHTTPServer 80 > /tmp/certbot-server.log 2>&1 &
+        SERVER_PID=$!
+    else
+        print_error "Python is not available. Installing nginx..."
+        # Install nginx as fallback
+        if command -v apt-get &> /dev/null; then
+            apt-get update && apt-get install -y nginx
+        elif command -v yum &> /dev/null; then
+            yum install -y nginx
+        elif command -v dnf &> /dev/null; then
+            dnf install -y nginx
+        else
+            print_error "Cannot install nginx. Please install a web server manually."
+            exit 1
+        fi
+        
+        # Create nginx config and start it
+        setup_nginx_fallback
+        return
+    fi
+    
+    # Save the PID for cleanup
+    echo $SERVER_PID > /tmp/certbot-server.pid
+    
+    # Wait a moment for server to start
+    sleep 2
+    
+    # Verify server is running
+    if kill -0 $SERVER_PID 2>/dev/null; then
+        print_success "Temporary web server started (PID: $SERVER_PID)"
+    else
+        print_error "Failed to start temporary web server"
+        exit 1
+    fi
+    
+    # Go back to project root
+    cd "$PROJECT_ROOT"
+}
+
+# Function to setup nginx as fallback
+setup_nginx_fallback() {
+    print_status "Setting up nginx for certificate validation..."
     
     # Create temporary nginx config
-    sudo tee /tmp/nginx-certbot.conf > /dev/null << EOF
+    tee /tmp/nginx-certbot.conf > /dev/null << EOF
 events {
     worker_connections 1024;
 }
@@ -183,23 +321,40 @@ http {
 }
 EOF
 
-    # Stop any existing nginx
-    sudo systemctl stop nginx 2>/dev/null || true
-    sudo systemctl stop apache2 2>/dev/null || true
+    # Start nginx with custom config
+    nginx -t -c /tmp/nginx-certbot.conf
+    nginx -c /tmp/nginx-certbot.conf
     
-    # Start temporary nginx
-    sudo nginx -t -c /tmp/nginx-certbot.conf
-    sudo nginx -c /tmp/nginx-certbot.conf
-    
-    print_success "Temporary nginx started for certificate validation"
+    print_success "Nginx started for certificate validation"
 }
 
-# Function to cleanup temporary nginx
-cleanup_temp_nginx() {
-    print_status "Cleaning up temporary nginx..."
-    sudo nginx -s quit 2>/dev/null || sudo killall nginx 2>/dev/null || true
-    sudo rm -f /tmp/nginx-certbot.conf
-    print_success "Temporary nginx stopped"
+# Function to cleanup temporary web server
+cleanup_temp_server() {
+    print_status "Cleaning up temporary web server..."
+    
+    # Kill Python HTTP server if running
+    if [ -f /tmp/certbot-server.pid ]; then
+        SERVER_PID=$(cat /tmp/certbot-server.pid)
+        if kill -0 $SERVER_PID 2>/dev/null; then
+            print_status "Stopping Python HTTP server (PID: $SERVER_PID)"
+            kill $SERVER_PID 2>/dev/null || true
+            sleep 2
+            # Force kill if still running
+            if kill -0 $SERVER_PID 2>/dev/null; then
+                kill -9 $SERVER_PID 2>/dev/null || true
+            fi
+        fi
+        rm -f /tmp/certbot-server.pid
+    fi
+    
+    # Stop nginx if running
+    nginx -s quit 2>/dev/null || killall nginx 2>/dev/null || true
+    rm -f /tmp/nginx-certbot.conf
+    
+    # Clean up log file
+    rm -f /tmp/certbot-server.log
+    
+    print_success "Temporary web server stopped"
 }
 
 # Function to obtain SSL certificates
@@ -227,8 +382,11 @@ obtain_certificates() {
         fi
     fi
     
-    # Setup temporary nginx for validation
-    setup_temp_nginx
+    # Free up ports 80 and 443 before certificate validation
+    free_ports
+    
+    # Setup temporary web server for validation
+    setup_temp_server
     
     # Obtain certificate
     print_status "Running certbot to obtain certificate..."
@@ -245,8 +403,8 @@ obtain_certificates() {
         print_success "SSL certificate obtained successfully!"
         
         # Set proper permissions
-        sudo chmod -R 755 /etc/letsencrypt/live/
-        sudo chmod -R 755 /etc/letsencrypt/archive/
+        chmod -R 755 /etc/letsencrypt/live/
+        chmod -R 755 /etc/letsencrypt/archive/
         
         # Show certificate info
         print_status "Certificate information:"
@@ -254,12 +412,12 @@ obtain_certificates() {
         
     else
         print_error "Failed to obtain SSL certificate"
-        cleanup_temp_nginx
+        cleanup_temp_server
         exit 1
     fi
     
     # Cleanup
-    cleanup_temp_nginx
+    cleanup_temp_server
     
     print_success "SSL certificate setup completed!"
     print_status "Certificate files located at: $CERT_PATH"
@@ -272,8 +430,11 @@ renew_certificates() {
     
     print_status "Renewing SSL certificates..."
     
-    # Setup temporary nginx for validation
-    setup_temp_nginx
+    # Free up ports 80 and 443 before certificate validation
+    free_ports
+    
+    # Setup temporary web server for validation
+    setup_temp_server
     
     if certbot renew --webroot --webroot-path="$WEBROOT_PATH" --quiet; then
         print_success "Certificate renewal completed!"
@@ -286,11 +447,11 @@ renew_certificates() {
         
     else
         print_error "Certificate renewal failed"
-        cleanup_temp_nginx
+        cleanup_temp_server
         exit 1
     fi
     
-    cleanup_temp_nginx
+    cleanup_temp_server
 }
 
 # Function to check certificate status
@@ -353,17 +514,17 @@ test_renewal() {
     
     print_status "Testing certificate renewal (dry-run)..."
     
-    setup_temp_nginx
+    setup_temp_server
     
     if certbot renew --webroot --webroot-path="$WEBROOT_PATH" --dry-run; then
         print_success "Certificate renewal test passed!"
     else
         print_error "Certificate renewal test failed"
-        cleanup_temp_nginx
+        cleanup_temp_server
         exit 1
     fi
     
-    cleanup_temp_nginx
+    cleanup_temp_server
 }
 
 # Main execution logic
