@@ -43,17 +43,9 @@ services:
       - static_volume:/app/staticfiles:ro
       - media_volume:/app/media:ro
       - /etc/letsencrypt:/etc/letsencrypt:ro
-      - ./certbot-www:/var/www/certbot:ro
     depends_on:
       - web
     restart: always
-
-  certbot:
-    image: certbot/certbot
-    volumes:
-      - /etc/letsencrypt:/etc/letsencrypt
-      - ./certbot-www:/var/www/certbot
-    command: certonly --webroot --webroot-path=/var/www/certbot --email srijan05sahay@gmail.com --agree-tos --no-eff-email --force-renewal -d books.enspire2025.in
 
 volumes:
   postgres_data:

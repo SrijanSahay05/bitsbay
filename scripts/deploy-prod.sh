@@ -36,9 +36,9 @@ show_usage() {
     echo "  fresh-start    - Reset all migrations, start with fresh database (DESTRUCTIVE!)"
     echo "  logs           - Show production logs"
     echo "  status         - Show production container status"
-    echo "  ssl            - Setup/renew SSL certificates (container-based)"
+    echo "  ssl            - Setup/renew SSL certificates (deprecated - use ssl-host instead)"
     echo "  ssl-status     - Check SSL certificate status and expiry"
-    echo "  ssl-host       - Setup SSL using host machine certbot"
+    echo "  ssl-host       - Setup SSL using host machine certbot (RECOMMENDED)"
     echo "  http-only      - Setup HTTP-only mode (no SSL)"
     echo "  backup         - Backup database"
     echo "  restore        - Restore database from backup"
@@ -290,20 +290,22 @@ start_production() {
     # Check and disable conflicting services
     check_and_disable_conflicting_services
     
-    # Check if SSL certificates exist
-    CERT_PATH="certbot-conf/live/books.enspire2025.in/fullchain.pem"
+    # Check if host-based SSL certificates exist
+    CERT_PATH="/etc/letsencrypt/live/books.enspire2025.in/fullchain.pem"
     HAS_SSL=false
     
     if [ -f "$CERT_PATH" ]; then
         # Check if certificate is valid
         if openssl x509 -checkend 86400 -noout -in "$CERT_PATH" >/dev/null 2>&1; then
             HAS_SSL=true
-            print_success "Valid SSL certificates found"
+            print_success "Valid host-based SSL certificates found"
         else
             print_warning "SSL certificates exist but are expired or invalid"
+            print_status "Consider running: sudo ./scripts/setup-host-ssl.sh renew"
         fi
     else
-        print_warning "No SSL certificates found"
+        print_warning "No host-based SSL certificates found"
+        print_status "To obtain SSL certificates, run: sudo ./scripts/setup-host-ssl.sh obtain"
     fi
     
     # Stop any existing containers
@@ -477,191 +479,19 @@ show_status() {
     run_docker_compose "ps"
 }
 
-# Function to setup SSL certificates
+# Function to setup SSL certificates (deprecated - use ssl-host instead)
 setup_ssl() {
-    print_status "Setting up SSL certificates..."
-    
-    # Check if domain is configured
-    if ! grep -q "books.enspire2025.in" .env.prod; then
-        print_error "Domain not configured in .env.prod. Please update ALLOWED_HOSTS and CSRF_TRUSTED_ORIGINS"
-        exit 1
-    fi
-    
-    # Check and disable conflicting services before SSL setup
-    check_and_disable_conflicting_services
-    
-    # Create necessary directories
-    mkdir -p certbot-www
-    mkdir -p certbot-conf
-    
-    # Check if certificates already exist
-    if [ -f "certbot-conf/live/books.enspire2025.in/fullchain.pem" ]; then
-        print_success "SSL certificates already exist!"
-        
-        # Check certificate expiry
-        CERT_EXPIRY=$(openssl x509 -enddate -noout -in certbot-conf/live/books.enspire2025.in/fullchain.pem | cut -d= -f2)
-        EXPIRY_DATE=$(date -d "$CERT_EXPIRY" +%s 2>/dev/null || date -j -f "%b %d %T %Y %Z" "$CERT_EXPIRY" +%s 2>/dev/null || echo "0")
-        CURRENT_DATE=$(date +%s)
-        DAYS_UNTIL_EXPIRY=$(( (EXPIRY_DATE - CURRENT_DATE) / 86400 ))
-        
-        if [ $DAYS_UNTIL_EXPIRY -gt 30 ]; then
-            print_success "Certificate is valid for $DAYS_UNTIL_EXPIRY more days"
-            print_status "Restarting nginx to use existing certificates..."
-            run_docker_compose "restart nginx"
-            return 0
-        else
-            print_warning "Certificate expires in $DAYS_UNTIL_EXPIRY days, attempting renewal..."
-        fi
-    fi
-    
-    # Ensure proper permissions
-    if [ -d "/etc/letsencrypt" ]; then
-        sudo chmod 755 /etc/letsencrypt
-    fi
-    
-    # First, try to start nginx without SSL to handle ACME challenge
-    print_status "Starting nginx in HTTP-only mode for certificate verification..."
-    
-    # Create temporary nginx config for HTTP only
-    NGINX_TEMP_CONFIG="nginx/nginx.temp.conf"
-    cat > "$NGINX_TEMP_CONFIG" << 'EOF'
-events {
-    worker_connections 1024;
-}
-
-http {
-    include       /etc/nginx/mime.types;
-    default_type  application/octet-stream;
-    
-    upstream web {
-        server web:8000;
-    }
-
-    server {
-        listen 80;
-        server_name books.enspire2025.in;
-
-        # ACME challenge for Let's Encrypt
-        location /.well-known/acme-challenge/ {
-            root /var/www/certbot;
-            try_files $uri $uri/ =404;
-        }
-
-        # Temporary redirect all other traffic to a maintenance page
-        location / {
-            return 503 "Site is being set up. Please try again in a few minutes.";
-            add_header Content-Type text/plain;
-        }
-    }
-}
-EOF
-    
-    # Backup original nginx config
-    if [ -f "nginx/nginx.prod.conf" ]; then
-        cp nginx/nginx.prod.conf nginx/nginx.prod.conf.backup
-    fi
-    
-    # Use temporary config
-    cp "$NGINX_TEMP_CONFIG" nginx/nginx.prod.conf
-    
-    # Start containers with temporary config
-    print_status "Starting containers with HTTP-only configuration..."
-    run_docker_compose "up -d nginx"
-    
-    # Wait for nginx to be ready
-    sleep 5
-    
-    # Check if we're hitting rate limits by testing with dry-run first
-    print_status "Testing certificate request (dry-run)..."
-    DRY_RUN_RESULT=$(run_docker_compose "run --rm certbot certonly --webroot --webroot-path=/var/www/certbot --email srijan05sahay@gmail.com --agree-tos --no-eff-email --dry-run -d books.enspire2025.in" 2>&1)
-    
-    if echo "$DRY_RUN_RESULT" | grep -q "too many certificates"; then
-        print_error "Rate limit hit! Too many certificates issued for this domain."
-        print_warning "Let's Encrypt has rate limits. You may need to:"
-        print_warning "1. Wait up to a week before requesting new certificates"
-        print_warning "2. Use existing certificates if available"
-        print_warning "3. Consider using a different subdomain temporarily"
-        
-        # Restore original nginx config if it exists
-        if [ -f "nginx/nginx.prod.conf.backup" ]; then
-            mv nginx/nginx.prod.conf.backup nginx/nginx.prod.conf
-        fi
-        
-        # Ask user if they want to continue without SSL
-        echo
-        read -p "Do you want to continue with HTTP-only setup? (y/n): " -n 1 -r
-        echo
-        if [[ $REPLY =~ ^[Yy]$ ]]; then
-            print_warning "Continuing with HTTP-only setup..."
-            setup_http_only_fallback
-            return 0
-        else
-            print_status "SSL setup cancelled"
-            exit 1
-        fi
-    elif echo "$DRY_RUN_RESULT" | grep -q "Congratulations"; then
-        print_success "Dry-run successful! Proceeding with actual certificate request..."
-        
-        # Run actual certificate request
-        print_status "Obtaining SSL certificates from Let's Encrypt..."
-        CERT_RESULT=$(run_docker_compose "run --rm certbot certonly --webroot --webroot-path=/var/www/certbot --email srijan05sahay@gmail.com --agree-tos --no-eff-email --force-renewal -d books.enspire2025.in" 2>&1)
-        
-        if echo "$CERT_RESULT" | grep -q "Congratulations"; then
-            print_success "SSL certificates obtained successfully!"
-            
-            # Restore original nginx config
-            if [ -f "nginx/nginx.prod.conf.backup" ]; then
-                mv nginx/nginx.prod.conf.backup nginx/nginx.prod.conf
-            fi
-            
-            print_status "Restarting nginx with SSL configuration..."
-            run_docker_compose "restart nginx"
-            print_success "SSL setup completed!"
-            
-            # Clean up temporary files
-            rm -f "$NGINX_TEMP_CONFIG"
-            
-        else
-            print_error "Failed to obtain SSL certificates"
-            print_error "Certificate request output:"
-            echo "$CERT_RESULT"
-            
-            # Restore original nginx config
-            if [ -f "nginx/nginx.prod.conf.backup" ]; then
-                mv nginx/nginx.prod.conf.backup nginx/nginx.prod.conf
-            fi
-            
-            # Offer fallback option
-            echo
-            read -p "Do you want to continue with HTTP-only setup? (y/n): " -n 1 -r
-            echo
-            if [[ $REPLY =~ ^[Yy]$ ]]; then
-                setup_http_only_fallback
-                return 0
-            else
-                exit 1
-            fi
-        fi
+    print_warning "Container-based SSL setup is deprecated!"
+    print_status "Use host-based SSL instead for better reliability and to avoid rate limits."
+    print_status "Run: $0 ssl-host"
+    echo
+    read -p "Do you want to use host-based SSL setup instead? (y/n): " -n 1 -r
+    echo
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        setup_host_ssl
     else
-        print_error "Dry-run failed. Check domain configuration and DNS settings."
-        print_error "Dry-run output:"
-        echo "$DRY_RUN_RESULT"
-        
-        # Restore original nginx config
-        if [ -f "nginx/nginx.prod.conf.backup" ]; then
-            mv nginx/nginx.prod.conf.backup nginx/nginx.prod.conf
-        fi
-        
-        # Offer fallback option
-        echo
-        read -p "Do you want to continue with HTTP-only setup? (y/n): " -n 1 -r
-        echo
-        if [[ $REPLY =~ ^[Yy]$ ]]; then
-            setup_http_only_fallback
-            return 0
-        else
-            exit 1
-        fi
+        print_status "SSL setup cancelled. Consider using: $0 ssl-host"
+        exit 1
     fi
 }
 
@@ -829,41 +659,60 @@ create_migrations() {
 check_ssl_status() {
     print_status "Checking SSL certificate status..."
     
-    CERT_PATH="certbot-conf/live/books.enspire2025.in/fullchain.pem"
+    # Check for host-based certificates first
+    HOST_CERT_PATH="/etc/letsencrypt/live/books.enspire2025.in/fullchain.pem"
     
-    if [ ! -f "$CERT_PATH" ]; then
-        print_warning "No SSL certificate found at: $CERT_PATH"
-        print_status "Run '$0 ssl' to obtain SSL certificates"
-        return 1
+    if [ -f "$HOST_CERT_PATH" ]; then
+        print_success "Host-based SSL certificate found!"
+        
+        # Use the host SSL script to check status
+        if [ -f "$SCRIPT_DIR/setup-host-ssl.sh" ]; then
+            sudo "$SCRIPT_DIR/setup-host-ssl.sh" check
+        else
+            # Manual check if script not available
+            print_status "Certificate found, checking details..."
+            
+            CERT_SUBJECT=$(openssl x509 -subject -noout -in "$HOST_CERT_PATH" | sed 's/subject=//')
+            CERT_ISSUER=$(openssl x509 -issuer -noout -in "$HOST_CERT_PATH" | sed 's/issuer=//')
+            CERT_START=$(openssl x509 -startdate -noout -in "$HOST_CERT_PATH" | sed 's/notBefore=//')
+            CERT_END=$(openssl x509 -enddate -noout -in "$HOST_CERT_PATH" | sed 's/notAfter=//')
+            
+            print_success "SSL Certificate Details:"
+            echo "  Subject: $CERT_SUBJECT"
+            echo "  Issuer: $CERT_ISSUER"
+            echo "  Valid from: $CERT_START"
+            echo "  Valid until: $CERT_END"
+            
+            # Calculate days until expiry
+            EXPIRY_DATE=$(date -d "$CERT_END" +%s 2>/dev/null || date -j -f "%b %d %T %Y %Z" "$CERT_END" +%s 2>/dev/null || echo "0")
+            CURRENT_DATE=$(date +%s)
+            DAYS_UNTIL_EXPIRY=$(( (EXPIRY_DATE - CURRENT_DATE) / 86400 ))
+            
+            if [ $DAYS_UNTIL_EXPIRY -gt 30 ]; then
+                print_success "Certificate is valid for $DAYS_UNTIL_EXPIRY more days"
+            elif [ $DAYS_UNTIL_EXPIRY -gt 0 ]; then
+                print_warning "Certificate expires in $DAYS_UNTIL_EXPIRY days - consider renewal"
+                print_status "Run: sudo ./scripts/setup-host-ssl.sh renew"
+            else
+                print_error "Certificate has expired!"
+                print_status "Run: sudo ./scripts/setup-host-ssl.sh renew"
+            fi
+        fi
+        return 0
     fi
     
-    # Check certificate details
-    print_status "Certificate found, checking details..."
-    
-    CERT_SUBJECT=$(openssl x509 -subject -noout -in "$CERT_PATH" | sed 's/subject=//')
-    CERT_ISSUER=$(openssl x509 -issuer -noout -in "$CERT_PATH" | sed 's/issuer=//')
-    CERT_START=$(openssl x509 -startdate -noout -in "$CERT_PATH" | sed 's/notBefore=//')
-    CERT_END=$(openssl x509 -enddate -noout -in "$CERT_PATH" | sed 's/notAfter=//')
-    
-    print_success "SSL Certificate Details:"
-    echo "  Subject: $CERT_SUBJECT"
-    echo "  Issuer: $CERT_ISSUER"
-    echo "  Valid from: $CERT_START"
-    echo "  Valid until: $CERT_END"
-    
-    # Calculate days until expiry
-    EXPIRY_DATE=$(date -d "$CERT_END" +%s 2>/dev/null || date -j -f "%b %d %T %Y %Z" "$CERT_END" +%s 2>/dev/null || echo "0")
-    CURRENT_DATE=$(date +%s)
-    DAYS_UNTIL_EXPIRY=$(( (EXPIRY_DATE - CURRENT_DATE) / 86400 ))
-    
-    if [ $DAYS_UNTIL_EXPIRY -gt 30 ]; then
-        print_success "Certificate is valid for $DAYS_UNTIL_EXPIRY more days"
-    elif [ $DAYS_UNTIL_EXPIRY -gt 0 ]; then
-        print_warning "Certificate expires in $DAYS_UNTIL_EXPIRY days - consider renewal"
-    else
-        print_error "Certificate has expired!"
-        print_status "Run '$0 ssl' to renew certificates"
+    # Fallback: check for old container-based certificates
+    CONTAINER_CERT_PATH="certbot-conf/live/books.enspire2025.in/fullchain.pem"
+    if [ -f "$CONTAINER_CERT_PATH" ]; then
+        print_warning "Found old container-based SSL certificate"
+        print_status "Consider migrating to host-based SSL: $0 ssl-host"
+        return 0
     fi
+    
+    # No certificates found
+    print_warning "No SSL certificates found"
+    print_status "To obtain SSL certificates, run: $0 ssl-host"
+    return 1
 }
 
 # Function to setup HTTP-only mode
@@ -988,8 +837,8 @@ setup_host_ssl() {
             docker-compose -f docker-compose.prod.yml down 2>/dev/null || true
         fi
         
-        # Start with host SSL configuration
-        docker-compose -f docker-compose.prod.hostssl.yml up --build -d
+        # Start with regular production configuration (now uses host SSL)
+        docker-compose -f docker-compose.prod.yml up --build -d
         
         if [ $? -eq 0 ]; then
             print_success "Production environment started with host-based SSL!"
