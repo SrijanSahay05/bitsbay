@@ -289,7 +289,7 @@ start_production() {
     check_and_disable_conflicting_services
     
     # Check if SSL certificates exist
-    CERT_PATH="certbot-conf/live/shreyas.srijansahay05.in/fullchain.pem"
+    CERT_PATH="certbot-conf/live/books.enspire2025.in/fullchain.pem"
     HAS_SSL=false
     
     if [ -f "$CERT_PATH" ]; then
@@ -317,11 +317,11 @@ start_production() {
         print_status "Services are starting up..."
         
         if [ "$HAS_SSL" = true ]; then
-            print_status "Web application will be available at: https://shreyas.srijansahay05.in"
-            print_status "Admin panel will be available at: https://shreyas.srijansahay05.in/admin"
+            print_status "Web application will be available at: https://books.enspire2025.in"
+            print_status "Admin panel will be available at: https://books.enspire2025.in/admin"
         else
-            print_status "Web application will be available at: http://shreyas.srijansahay05.in"
-            print_status "Admin panel will be available at: http://shreyas.srijansahay05.in/admin"
+            print_status "Web application will be available at: http://books.enspire2025.in"
+            print_status "Admin panel will be available at: http://books.enspire2025.in/admin"
             print_warning "⚠️  Running without SSL certificates!"
             print_status "To setup SSL certificates, run: $0 ssl"
         fi
@@ -459,8 +459,8 @@ fresh_start_production() {
     print_success "🎉 Fresh start completed successfully!"
     print_status "Your application is now running with a clean database"
     print_warning "Don't forget to create a superuser: $0 createsuperuser"
-    print_status "Web application: https://shreyas.srijansahay05.in"
-    print_status "Admin panel: https://shreyas.srijansahay05.in/admin"
+    print_status "Web application: https://books.enspire2025.in"
+    print_status "Admin panel: https://books.enspire2025.in/admin"
 }
 
 # Function to show logs
@@ -480,7 +480,7 @@ setup_ssl() {
     print_status "Setting up SSL certificates..."
     
     # Check if domain is configured
-    if ! grep -q "shreyas.srijansahay05.in" .env.prod; then
+    if ! grep -q "books.enspire2025.in" .env.prod; then
         print_error "Domain not configured in .env.prod. Please update ALLOWED_HOSTS and CSRF_TRUSTED_ORIGINS"
         exit 1
     fi
@@ -493,11 +493,11 @@ setup_ssl() {
     mkdir -p certbot-conf
     
     # Check if certificates already exist
-    if [ -f "certbot-conf/live/shreyas.srijansahay05.in/fullchain.pem" ]; then
+    if [ -f "certbot-conf/live/books.enspire2025.in/fullchain.pem" ]; then
         print_success "SSL certificates already exist!"
         
         # Check certificate expiry
-        CERT_EXPIRY=$(openssl x509 -enddate -noout -in certbot-conf/live/shreyas.srijansahay05.in/fullchain.pem | cut -d= -f2)
+        CERT_EXPIRY=$(openssl x509 -enddate -noout -in certbot-conf/live/books.enspire2025.in/fullchain.pem | cut -d= -f2)
         EXPIRY_DATE=$(date -d "$CERT_EXPIRY" +%s 2>/dev/null || date -j -f "%b %d %T %Y %Z" "$CERT_EXPIRY" +%s 2>/dev/null || echo "0")
         CURRENT_DATE=$(date +%s)
         DAYS_UNTIL_EXPIRY=$(( (EXPIRY_DATE - CURRENT_DATE) / 86400 ))
@@ -537,7 +537,7 @@ http {
 
     server {
         listen 80;
-        server_name shreyas.srijansahay05.in;
+        server_name books.enspire2025.in;
 
         # ACME challenge for Let's Encrypt
         location /.well-known/acme-challenge/ {
@@ -571,7 +571,7 @@ EOF
     
     # Check if we're hitting rate limits by testing with dry-run first
     print_status "Testing certificate request (dry-run)..."
-    DRY_RUN_RESULT=$(run_docker_compose "run --rm certbot certonly --webroot --webroot-path=/var/www/certbot --email srijan05sahay@gmail.com --agree-tos --no-eff-email --dry-run -d shreyas.srijansahay05.in" 2>&1)
+    DRY_RUN_RESULT=$(run_docker_compose "run --rm certbot certonly --webroot --webroot-path=/var/www/certbot --email srijan05sahay@gmail.com --agree-tos --no-eff-email --dry-run -d books.enspire2025.in" 2>&1)
     
     if echo "$DRY_RUN_RESULT" | grep -q "too many certificates"; then
         print_error "Rate limit hit! Too many certificates issued for this domain."
@@ -602,7 +602,7 @@ EOF
         
         # Run actual certificate request
         print_status "Obtaining SSL certificates from Let's Encrypt..."
-        CERT_RESULT=$(run_docker_compose "run --rm certbot certonly --webroot --webroot-path=/var/www/certbot --email srijan05sahay@gmail.com --agree-tos --no-eff-email --force-renewal -d shreyas.srijansahay05.in" 2>&1)
+        CERT_RESULT=$(run_docker_compose "run --rm certbot certonly --webroot --webroot-path=/var/www/certbot --email srijan05sahay@gmail.com --agree-tos --no-eff-email --force-renewal -d books.enspire2025.in" 2>&1)
         
         if echo "$CERT_RESULT" | grep -q "Congratulations"; then
             print_success "SSL certificates obtained successfully!"
@@ -683,7 +683,7 @@ http {
 
     server {
         listen 80;
-        server_name shreyas.srijansahay05.in;
+        server_name books.enspire2025.in;
 
         # Security headers (even for HTTP)
         add_header X-Frame-Options "SAMEORIGIN" always;
@@ -727,7 +727,7 @@ EOF
     run_docker_compose "restart nginx"
     
     print_success "HTTP-only setup completed!"
-    print_warning "⚠️  Your site is running over HTTP only at: http://shreyas.srijansahay05.in"
+    print_warning "⚠️  Your site is running over HTTP only at: http://books.enspire2025.in"
     print_warning "⚠️  This is not secure for production use!"
     print_status "To add SSL later, run: $0 ssl"
 }
@@ -827,7 +827,7 @@ create_migrations() {
 check_ssl_status() {
     print_status "Checking SSL certificate status..."
     
-    CERT_PATH="certbot-conf/live/shreyas.srijansahay05.in/fullchain.pem"
+    CERT_PATH="certbot-conf/live/books.enspire2025.in/fullchain.pem"
     
     if [ ! -f "$CERT_PATH" ]; then
         print_warning "No SSL certificate found at: $CERT_PATH"
@@ -881,13 +881,13 @@ setup_http_only() {
 
 # Function to check domain configuration
 check_domain_config() {
-    print_status "Checking domain configuration for shreyas.srijansahay05.in..."
+    print_status "Checking domain configuration for books.enspire2025.in..."
     
     # Check if domain resolves to current server
-    DOMAIN_IP=$(dig +short shreyas.srijansahay05.in 2>/dev/null || nslookup shreyas.srijansahay05.in 2>/dev/null | grep -A1 "Name:" | tail -1 | awk '{print $2}')
+    DOMAIN_IP=$(dig +short books.enspire2025.in 2>/dev/null || nslookup books.enspire2025.in 2>/dev/null | grep -A1 "Name:" | tail -1 | awk '{print $2}')
     
     if [ -z "$DOMAIN_IP" ]; then
-        print_error "Could not resolve domain shreyas.srijansahay05.in"
+        print_error "Could not resolve domain books.enspire2025.in"
         print_status "Please check your DNS configuration"
         return 1
     fi
@@ -910,7 +910,7 @@ check_domain_config() {
     
     # Test HTTP connectivity
     print_status "Testing HTTP connectivity..."
-    HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://shreyas.srijansahay05.in --connect-timeout 10 2>/dev/null || echo "000")
+    HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://books.enspire2025.in --connect-timeout 10 2>/dev/null || echo "000")
     
     if [ "$HTTP_STATUS" = "200" ] || [ "$HTTP_STATUS" = "301" ] || [ "$HTTP_STATUS" = "302" ]; then
         print_success "✅ HTTP connectivity working (status: $HTTP_STATUS)"
@@ -920,7 +920,7 @@ check_domain_config() {
     
     # Test HTTPS connectivity
     print_status "Testing HTTPS connectivity..."
-    HTTPS_STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://shreyas.srijansahay05.in --connect-timeout 10 2>/dev/null || echo "000")
+    HTTPS_STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://books.enspire2025.in --connect-timeout 10 2>/dev/null || echo "000")
     
     if [ "$HTTPS_STATUS" = "200" ] || [ "$HTTPS_STATUS" = "301" ] || [ "$HTTPS_STATUS" = "302" ]; then
         print_success "✅ HTTPS connectivity working (status: $HTTPS_STATUS)"
