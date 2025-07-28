@@ -62,10 +62,7 @@ DJANGO_SECRET_KEY=your-super-secret-production-key-change-this-immediately
 POSTGRES_PASSWORD=your-secure-database-password
 POSTGRES_USER=postgres_user
 
-# Your Google OAuth2 credentials
-GOOGLE_OAUTH2_CLIENT_ID=552439940086-tiavhovc9mrifs6v4hr82bup22nsi4do.apps.googleusercontent.com
-GOOGLE_OAUTH2_CLIENT_SECRET=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
-```
+
 
 **4. DNS Configuration Check**
 ```bash
