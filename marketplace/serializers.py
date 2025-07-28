@@ -28,7 +28,7 @@ class ListingReadSerializer(serializers.ModelSerializer):
         model = Listing
         fields = [
             'id', 'name', 'title', 'description',
-            'tags', 'display_tags', 'negotiable', 'phone', 'email', 'year', 'status'
+            'tags', 'display_tags', 'negotiable', 'phone', 'email', 'year', 'status', 'price'
         ]
 
     def get_tags(self, obj):
