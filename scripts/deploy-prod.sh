@@ -34,6 +34,7 @@ show_usage() {
     echo "  restart        - Restart production environment"
     echo "  rebuild        - Rebuild and start production containers"
     echo "  fresh-start    - Reset all migrations, start with fresh database (DESTRUCTIVE!)"
+    echo "  fresh-restart  - Alias for fresh-start (DESTRUCTIVE!)"
     echo "  logs           - Show production logs"
     echo "  status         - Show production container status"
     echo "  ssl            - Setup/renew SSL certificates (deprecated - use ssl-host instead)"
@@ -54,6 +55,7 @@ show_usage() {
     echo "  $0              # Start production (default)"
     echo "  $0 restart      # Restart production"
     echo "  $0 fresh-start  # Reset database and start fresh"
+    echo "  $0 fresh-restart # Reset database and start fresh (alias)"
     echo "  $0 ssl          # Setup SSL certificates (container)"
     echo "  $0 ssl-host     # Setup SSL using host certbot (recommended)"
     echo "  $0 ssl-status   # Check SSL certificate expiry"
@@ -884,6 +886,11 @@ case $COMMAND in
         rebuild_production
         ;;
     "fresh-start")
+        setup_env_file
+        check_prerequisites
+        fresh_start_production
+        ;;
+    "fresh-restart")
         setup_env_file
         check_prerequisites
         fresh_start_production
